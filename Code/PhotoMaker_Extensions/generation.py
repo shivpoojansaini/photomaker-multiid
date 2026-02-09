@@ -7,7 +7,7 @@ from PIL import Image
 from typing import Tuple, List, Optional
 from diffusers.utils import load_image
 from .style_template import styles
-from .face_utils import extract_left_right_embeddings
+from .face_utils import extract_left_right_faces
 from .prompt_splitter import split_prompt
 from .image_merger import merge_images, side_by_side
 
@@ -96,8 +96,11 @@ def generate_multi_identity(
     print(f"    Left:  {left_prompt}")
     print(f"    Right: {right_prompt}")
 
-    # Extract identity embeddings
-    id_left, id_right = extract_left_right_embeddings(face_detector, input_image)
+    # Extract identity faces (cropped images + embeddings)
+    (left_face_img, id_left), (right_face_img, id_right) = extract_left_right_faces(
+        face_detector, input_image
+    )
+    print(f"  Extracted face crops: left={left_face_img.size}, right={right_face_img.size}")
 
     # Seed
     seed = seed if seed is not None else random.randint(0, MAX_SEED)
@@ -114,14 +117,14 @@ def generate_multi_identity(
     validate_trigger_word(pipe, prompt_left_styled)
     validate_trigger_word(pipe, prompt_right_styled)
 
-    # Generate LEFT identity image
+    # Generate LEFT identity image (using LEFT face crop only)
     print(f"  Generating left identity...")
     generator = torch.Generator(device=pipe.device).manual_seed(seed)
     left_result = pipe(
         prompt=prompt_left_styled,
         width=width,
         height=height,
-        input_id_images=[input_image],
+        input_id_images=[left_face_img],  # Use cropped left face only
         negative_prompt=neg_left,
         num_images_per_prompt=1,
         num_inference_steps=num_steps,
@@ -131,14 +134,14 @@ def generate_multi_identity(
         id_embeds=id_left,
     ).images[0]
 
-    # Generate RIGHT identity image
+    # Generate RIGHT identity image (using RIGHT face crop only)
     print(f"  Generating right identity...")
     generator = torch.Generator(device=pipe.device).manual_seed(seed)  # Reset for consistency
     right_result = pipe(
         prompt=prompt_right_styled,
         width=width,
         height=height,
-        input_id_images=[input_image],
+        input_id_images=[right_face_img],  # Use cropped right face only
         negative_prompt=neg_right,
         num_images_per_prompt=1,
         num_inference_steps=num_steps,
@@ -186,8 +189,10 @@ def generate_images(
     # Load input image
     input_image = load_image(input_image_path)
 
-    # Extract identity embeddings
-    id_left, id_right = extract_left_right_embeddings(face_detector, input_image)
+    # Extract identity faces (cropped images + embeddings)
+    (left_face_img, id_left), (right_face_img, id_right) = extract_left_right_faces(
+        face_detector, input_image
+    )
 
     # Seed
     seed = seed if seed is not None else random.randint(0, MAX_SEED)
@@ -208,7 +213,7 @@ def generate_images(
         prompt=prompt_left,
         width=width,
         height=height,
-        input_id_images=[input_image],
+        input_id_images=[left_face_img],  # Use cropped left face
         negative_prompt=neg_left,
         num_images_per_prompt=num_outputs,
         num_inference_steps=num_steps,
@@ -228,7 +233,7 @@ def generate_images(
         prompt=prompt_right,
         width=width,
         height=height,
-        input_id_images=[input_image],
+        input_id_images=[right_face_img],  # Use cropped right face
         negative_prompt=neg_right,
         num_images_per_prompt=num_outputs,
         num_inference_steps=num_steps,
