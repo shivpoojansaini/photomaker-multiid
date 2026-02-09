@@ -1,9 +1,13 @@
 # config.py
+from pathlib import Path
+
+# Base paths (relative to project root)
+_PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 # Input image(s)
-INPUT_IMAGES = "/teamspace/studios/this_studio/PhotoMaker-CAP-C6-Group_3/Data/Input"
+INPUT_IMAGES = str(_PROJECT_ROOT / "Data" / "Input")
 
-# Prompts
+# Prompts (legacy - not used by multi-identity interface)
 PROMPTS_FACE_LEFT = [
     "a man img wearing a spacesuit",
 ]
@@ -13,7 +17,7 @@ PROMPTS_FACE_RIGHT = [
 ]
 
 # Output settings
-OUTPUT_DIR = "/teamspace/studios/this_studio/PhotoMaker-CAP-C6-Group_3/Data/Output"
+OUTPUT_DIR = str(_PROJECT_ROOT / "Data" / "Output")
 NUM_OUTPUTS = 1
 
 # Style

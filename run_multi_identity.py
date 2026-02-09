@@ -10,6 +10,19 @@ This script:
 2. Automatically splits it into left/right prompts
 3. Generates separate images for each identity
 4. Merges them with smooth overlap blending
+
+Examples:
+    # Basic usage
+    python run_multi_identity.py --input_image Data/Input/couple.jpg --prompt "left person as teacher, right person as doctor"
+
+    # With custom overlap and seed
+    python run_multi_identity.py --input_image couple.jpg --prompt "left person as astronaut, right person as chef" --overlap 0.4 --seed 42
+
+    # Save separate images without merging
+    python run_multi_identity.py --input_image couple.jpg --prompt "left person as X, right person as Y" --merge_mode separate
+
+    # Skip watermark
+    python run_multi_identity.py --input_image couple.jpg --prompt "..." --no_watermark
 """
 
 import argparse
@@ -23,7 +36,6 @@ from PhotoMaker_Extensions.pipeline_loader import load_pipeline, get_device
 from PhotoMaker_Extensions.face_utils import load_face_detector
 from PhotoMaker_Extensions.generation import generate_multi_identity
 from PhotoMaker_Extensions.watermark import add_watermark
-from PhotoMaker_Extensions.invisible_watermark.utils import encode_watermark
 from PhotoMaker_Extensions.config import (
     OUTPUT_DIR,
     STYLE_NAME,
@@ -34,6 +46,13 @@ from PhotoMaker_Extensions.config import (
     STYLE_STRENGTH_RATIO,
     GUIDANCE_SCALE,
 )
+
+# Import watermark with graceful fallback
+try:
+    from PhotoMaker_Extensions.invisible_watermark.utils import encode_watermark, WATERMARK_AVAILABLE
+except ImportError:
+    WATERMARK_AVAILABLE = False
+    encode_watermark = lambda img, bits: img
 
 
 def main():
@@ -129,7 +148,10 @@ def main():
     def apply_watermarks(img):
         if args.no_watermark:
             return img
-        img = encode_watermark(img, bitstring)
+        # Apply invisible watermark if available
+        if WATERMARK_AVAILABLE:
+            img = encode_watermark(img, bitstring)
+        # Apply visible watermark
         img = add_watermark(img)
         return img
 
