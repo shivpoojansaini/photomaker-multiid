@@ -77,7 +77,7 @@ def main():
     )
     parser.add_argument(
         "--overlap", type=float, default=None,
-        help="Overlap percentage for middle blend zone (5-20%%). Default: random 5-20%%"
+        help="Blend zone width in %% (5-15). Default: random 5-15%%"
     )
     parser.add_argument(
         "--merge_mode", type=str, default="blend",

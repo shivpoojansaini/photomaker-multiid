@@ -4,7 +4,7 @@
 import random
 import numpy as np
 from PIL import Image
-from typing import Tuple, Optional
+from typing import Optional
 
 
 def merge_images(
@@ -14,17 +14,17 @@ def merge_images(
     blend_mode: str = "smooth",
 ) -> Image.Image:
     """
-    Merge two images horizontally: left half from left_image, right half from right_image.
+    Merge two images: left side from left_image + right side from right_image.
 
-    The merge takes:
-    - Left portion (0 to ~50%) from left_image
-    - Right portion (~50% to 100%) from right_image
-    - Small overlap zone (5-20%) in the middle for natural blending
+    Takes:
+    - LEFT side of left_image (0 to ~50%)
+    - RIGHT side of right_image (~50% to 100%)
+    - Small 5-15% blend zone at the seam for natural transition
 
     Args:
         left_image: PIL Image with left identity
         right_image: PIL Image with right identity
-        overlap_percent: Overlap percentage (5-20). If None, random between 5-20%
+        overlap_percent: Blend zone width as percentage (5-15). If None, random 5-15%
         blend_mode: "smooth" (sigmoid), "linear", or "hard" (no blend)
 
     Returns:
@@ -36,19 +36,19 @@ def merge_images(
 
     width, height = left_image.size
 
-    # Random overlap between 5-20% if not specified
+    # Random overlap between 5-15% if not specified
     if overlap_percent is None:
-        overlap_percent = random.uniform(5, 20)
+        overlap_percent = random.uniform(5, 15)
 
-    overlap_percent = max(5, min(20, overlap_percent))  # Clamp to 5-20%
+    overlap_percent = max(5, min(15, overlap_percent))  # Clamp to 5-15%
 
-    # Calculate overlap zone
-    overlap_width = int(width * overlap_percent / 100)
+    # Calculate blend zone (centered at 50%)
+    blend_width = int(width * overlap_percent / 100)
     center = width // 2
 
-    # Overlap zone boundaries
-    blend_start = center - overlap_width // 2
-    blend_end = center + overlap_width // 2
+    # Blend zone boundaries
+    blend_start = center - blend_width // 2
+    blend_end = center + blend_width // 2
 
     # Convert to numpy
     left_arr = np.array(left_image).astype(np.float32)
@@ -57,38 +57,39 @@ def merge_images(
     # Create output array
     merged = np.zeros_like(left_arr)
 
-    # Left region: 100% from left image
+    # LEFT region: take from LEFT image (0 to blend_start)
     merged[:, :blend_start] = left_arr[:, :blend_start]
 
-    # Right region: 100% from right image
+    # RIGHT region: take from RIGHT image (blend_end to width)
     merged[:, blend_end:] = right_arr[:, blend_end:]
 
-    # Blend region in the middle
+    # Blend zone in the middle
     if blend_end > blend_start:
-        blend_width = blend_end - blend_start
+        bw = blend_end - blend_start
 
         if blend_mode == "hard":
-            # Hard cut at center
-            cut_point = blend_width // 2
-            merged[:, blend_start:blend_start + cut_point] = left_arr[:, blend_start:blend_start + cut_point]
-            merged[:, blend_start + cut_point:blend_end] = right_arr[:, blend_start + cut_point:blend_end]
+            # Hard cut at center (no blending)
+            cut = bw // 2
+            merged[:, blend_start:blend_start + cut] = left_arr[:, blend_start:blend_start + cut]
+            merged[:, blend_start + cut:blend_end] = right_arr[:, blend_start + cut:blend_end]
 
         elif blend_mode == "linear":
-            # Linear gradient blend
-            alpha = np.linspace(1.0, 0.0, blend_width)[np.newaxis, :, np.newaxis]
-            left_blend = left_arr[:, blend_start:blend_end]
-            right_blend = right_arr[:, blend_start:blend_end]
-            merged[:, blend_start:blend_end] = left_blend * alpha + right_blend * (1 - alpha)
+            # Linear gradient
+            alpha = np.linspace(1.0, 0.0, bw)[np.newaxis, :, np.newaxis]
+            merged[:, blend_start:blend_end] = (
+                left_arr[:, blend_start:blend_end] * alpha +
+                right_arr[:, blend_start:blend_end] * (1 - alpha)
+            )
 
         else:  # smooth (sigmoid)
-            # Smooth sigmoid transition for natural look
-            x = np.linspace(-4, 4, blend_width)  # sigmoid range
-            alpha = 1.0 / (1.0 + np.exp(x))  # sigmoid: 1->0
+            # Smooth sigmoid for natural seam
+            x = np.linspace(-4, 4, bw)
+            alpha = 1.0 / (1.0 + np.exp(x))
             alpha = alpha[np.newaxis, :, np.newaxis]
-
-            left_blend = left_arr[:, blend_start:blend_end]
-            right_blend = right_arr[:, blend_start:blend_end]
-            merged[:, blend_start:blend_end] = left_blend * alpha + right_blend * (1 - alpha)
+            merged[:, blend_start:blend_end] = (
+                left_arr[:, blend_start:blend_end] * alpha +
+                right_arr[:, blend_start:blend_end] * (1 - alpha)
+            )
 
     # Convert back to PIL
     merged = np.clip(merged, 0, 255).astype(np.uint8)
@@ -102,16 +103,7 @@ def side_by_side(
 ) -> Image.Image:
     """
     Simple side-by-side concatenation (no blending, doubles width).
-
-    Args:
-        left_image: Left PIL Image
-        right_image: Right PIL Image
-        gap: Gap in pixels between images
-
-    Returns:
-        Combined PIL Image (width = left + right + gap)
     """
-    # Ensure same height
     if left_image.height != right_image.height:
         target_height = max(left_image.height, right_image.height)
         left_image = left_image.resize(
@@ -123,11 +115,8 @@ def side_by_side(
             Image.LANCZOS
         )
 
-    # Create combined image
     total_width = left_image.width + right_image.width + gap
     combined = Image.new('RGB', (total_width, left_image.height), (255, 255, 255))
-
     combined.paste(left_image, (0, 0))
     combined.paste(right_image, (left_image.width + gap, 0))
-
     return combined
