@@ -170,12 +170,9 @@ def generate_multi_identity(
         print(f"  Merging: full left img + full right img")
         merged = merge_images(left_result, right_result)
 
-        # Resize to final width (maintaining aspect ratio)
-        merged_w, merged_h = merged.size
-        scale = final_width / merged_w
-        final_height = int(merged_h * scale)
-        merged = merged.resize((final_width, final_height), Image.LANCZOS)
-        print(f"  Resized to: {merged.size}")
+        # Resize to match input image dimensions exactly
+        merged = merged.resize((input_width, input_height), Image.LANCZOS)
+        print(f"  Resized to match input: {merged.size}")
 
         return merged, left_result, right_result, seed
 
@@ -183,11 +180,8 @@ def generate_multi_identity(
         print(f"  Creating side-by-side view...")
         merged = side_by_side(left_result, right_result, gap=10)
 
-        # Resize to final width
-        merged_w, merged_h = merged.size
-        scale = final_width / merged_w
-        final_height = int(merged_h * scale)
-        merged = merged.resize((final_width, final_height), Image.LANCZOS)
+        # Resize to match input image dimensions
+        merged = merged.resize((input_width, input_height), Image.LANCZOS)
 
         return merged, left_result, right_result, seed
 
