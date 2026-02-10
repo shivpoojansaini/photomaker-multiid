@@ -14,6 +14,46 @@ from .image_merger import merge_images, side_by_side
 MAX_SEED = np.iinfo(np.int32).max
 
 
+def resize_maintain_aspect(image: Image.Image, target_width: int, target_height: int) -> Image.Image:
+    """
+    Resize image to fit within target dimensions while maintaining aspect ratio.
+    Finds the best resolution that:
+    1. Maintains the original aspect ratio
+    2. Fits within target_width x target_height
+    3. Uses dimensions divisible by 8 (for model compatibility)
+
+    Args:
+        image: PIL Image to resize
+        target_width: Maximum width
+        target_height: Maximum height
+
+    Returns:
+        Resized PIL Image with preserved aspect ratio
+    """
+    img_w, img_h = image.size
+    img_aspect = img_w / img_h
+    target_aspect = target_width / target_height
+
+    if img_aspect > target_aspect:
+        # Image is wider - fit to width
+        new_width = target_width
+        new_height = int(target_width / img_aspect)
+    else:
+        # Image is taller - fit to height
+        new_height = target_height
+        new_width = int(target_height * img_aspect)
+
+    # Round to nearest multiple of 8 for model compatibility
+    new_width = (new_width // 8) * 8
+    new_height = (new_height // 8) * 8
+
+    # Ensure minimum dimensions
+    new_width = max(new_width, 64)
+    new_height = max(new_height, 64)
+
+    return image.resize((new_width, new_height), Image.LANCZOS)
+
+
 def validate_trigger_word(pipe, prompt):
     token_id = pipe.tokenizer.convert_tokens_to_ids(pipe.trigger_word)
     ids = pipe.tokenizer.encode(prompt)
@@ -170,9 +210,9 @@ def generate_multi_identity(
         print(f"  Merging: full left img + full right img")
         merged = merge_images(left_result, right_result)
 
-        # Resize to match input image dimensions exactly
-        merged = merged.resize((input_width, input_height), Image.LANCZOS)
-        print(f"  Resized to match input: {merged.size}")
+        # Resize maintaining aspect ratio to fit within input dimensions
+        merged = resize_maintain_aspect(merged, input_width, input_height)
+        print(f"  Resized (aspect preserved): {merged.size}")
 
         return merged, left_result, right_result, seed
 
@@ -180,8 +220,8 @@ def generate_multi_identity(
         print(f"  Creating side-by-side view...")
         merged = side_by_side(left_result, right_result, gap=10)
 
-        # Resize to match input image dimensions
-        merged = merged.resize((input_width, input_height), Image.LANCZOS)
+        # Resize maintaining aspect ratio
+        merged = resize_maintain_aspect(merged, input_width, input_height)
 
         return merged, left_result, right_result, seed
 
