@@ -76,8 +76,8 @@ def main():
         help="Random seed for reproducibility"
     )
     parser.add_argument(
-        "--overlap", type=float, default=0.3,
-        help="Overlap ratio for blending (0.1-0.5, default: 0.3)"
+        "--overlap", type=float, default=None,
+        help="Overlap percentage for middle blend zone (5-20%%). Default: random 5-20%%"
     )
     parser.add_argument(
         "--merge_mode", type=str, default="blend",

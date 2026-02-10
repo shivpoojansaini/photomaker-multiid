@@ -1,104 +1,34 @@
 # image_merger.py
 # Merge two generated images (left identity, right identity) into a single output
 
+import random
 import numpy as np
 from PIL import Image
 from typing import Tuple, Optional
 
 
-def create_blend_mask(width: int, height: int, overlap_ratio: float = 0.3) -> np.ndarray:
-    """
-    Create a horizontal gradient mask for blending two images.
-
-    The mask transitions from 1.0 (left) to 0.0 (right) in the overlap region.
-
-    Args:
-        width: Image width
-        height: Image height
-        overlap_ratio: Ratio of image width for the overlap/blend region (0.0-1.0)
-
-    Returns:
-        Gradient mask array of shape (height, width) with values 0.0-1.0
-    """
-    # Calculate overlap region
-    overlap_width = int(width * overlap_ratio)
-    center = width // 2
-
-    # Start and end of gradient
-    start = center - overlap_width // 2
-    end = center + overlap_width // 2
-
-    # Create horizontal gradient
-    mask = np.zeros((height, width), dtype=np.float32)
-
-    # Left region: fully left image (1.0)
-    mask[:, :start] = 1.0
-
-    # Overlap region: linear gradient
-    if end > start:
-        gradient = np.linspace(1.0, 0.0, end - start)
-        mask[:, start:end] = gradient[np.newaxis, :]
-
-    # Right region: fully right image (0.0)
-    mask[:, end:] = 0.0
-
-    return mask
-
-
-def create_gaussian_blend_mask(
-    width: int,
-    height: int,
-    overlap_ratio: float = 0.3,
-    sigma_ratio: float = 0.15
-) -> np.ndarray:
-    """
-    Create a smoother Gaussian-based blend mask.
-
-    Args:
-        width: Image width
-        height: Image height
-        overlap_ratio: Ratio of image width for the overlap region
-        sigma_ratio: Gaussian sigma as ratio of width (controls smoothness)
-
-    Returns:
-        Smooth gradient mask array
-    """
-    center = width // 2
-    sigma = width * sigma_ratio
-
-    # Create x coordinates
-    x = np.arange(width)
-
-    # Gaussian-like smooth transition (using sigmoid for efficiency)
-    # sigmoid centered at 'center' with smoothness controlled by sigma
-    mask_1d = 1.0 / (1.0 + np.exp((x - center) / (sigma / 4)))
-
-    # Expand to 2D
-    mask = np.tile(mask_1d, (height, 1)).astype(np.float32)
-
-    return mask
-
-
 def merge_images(
     left_image: Image.Image,
     right_image: Image.Image,
-    overlap_ratio: float = 0.3,
-    blend_mode: str = "gaussian",
+    overlap_percent: Optional[float] = None,
+    blend_mode: str = "smooth",
 ) -> Image.Image:
     """
-    Merge two images with horizontal overlap blending.
+    Merge two images horizontally: left half from left_image, right half from right_image.
 
-    The left half of left_image and right half of right_image are combined
-    with a smooth transition in the middle overlap region.
+    The merge takes:
+    - Left portion (0 to ~50%) from left_image
+    - Right portion (~50% to 100%) from right_image
+    - Small overlap zone (5-20%) in the middle for natural blending
 
     Args:
-        left_image: PIL Image generated with left identity
-        right_image: PIL Image generated with right identity
-        overlap_ratio: Width ratio for the blending overlap (0.1-0.5 recommended)
-        blend_mode: "linear" or "gaussian" for blend transition type
+        left_image: PIL Image with left identity
+        right_image: PIL Image with right identity
+        overlap_percent: Overlap percentage (5-20). If None, random between 5-20%
+        blend_mode: "smooth" (sigmoid), "linear", or "hard" (no blend)
 
     Returns:
-        Merged PIL Image
+        Merged PIL Image with same dimensions as input
     """
     # Ensure same size
     if left_image.size != right_image.size:
@@ -106,69 +36,63 @@ def merge_images(
 
     width, height = left_image.size
 
-    # Convert to numpy arrays
+    # Random overlap between 5-20% if not specified
+    if overlap_percent is None:
+        overlap_percent = random.uniform(5, 20)
+
+    overlap_percent = max(5, min(20, overlap_percent))  # Clamp to 5-20%
+
+    # Calculate overlap zone
+    overlap_width = int(width * overlap_percent / 100)
+    center = width // 2
+
+    # Overlap zone boundaries
+    blend_start = center - overlap_width // 2
+    blend_end = center + overlap_width // 2
+
+    # Convert to numpy
     left_arr = np.array(left_image).astype(np.float32)
     right_arr = np.array(right_image).astype(np.float32)
 
-    # Create blend mask
-    if blend_mode == "gaussian":
-        mask = create_gaussian_blend_mask(width, height, overlap_ratio)
-    else:
-        mask = create_blend_mask(width, height, overlap_ratio)
+    # Create output array
+    merged = np.zeros_like(left_arr)
 
-    # Expand mask for RGB channels
-    mask_3d = mask[:, :, np.newaxis]
+    # Left region: 100% from left image
+    merged[:, :blend_start] = left_arr[:, :blend_start]
 
-    # Blend: left * mask + right * (1 - mask)
-    merged = left_arr * mask_3d + right_arr * (1 - mask_3d)
+    # Right region: 100% from right image
+    merged[:, blend_end:] = right_arr[:, blend_end:]
+
+    # Blend region in the middle
+    if blend_end > blend_start:
+        blend_width = blend_end - blend_start
+
+        if blend_mode == "hard":
+            # Hard cut at center
+            cut_point = blend_width // 2
+            merged[:, blend_start:blend_start + cut_point] = left_arr[:, blend_start:blend_start + cut_point]
+            merged[:, blend_start + cut_point:blend_end] = right_arr[:, blend_start + cut_point:blend_end]
+
+        elif blend_mode == "linear":
+            # Linear gradient blend
+            alpha = np.linspace(1.0, 0.0, blend_width)[np.newaxis, :, np.newaxis]
+            left_blend = left_arr[:, blend_start:blend_end]
+            right_blend = right_arr[:, blend_start:blend_end]
+            merged[:, blend_start:blend_end] = left_blend * alpha + right_blend * (1 - alpha)
+
+        else:  # smooth (sigmoid)
+            # Smooth sigmoid transition for natural look
+            x = np.linspace(-4, 4, blend_width)  # sigmoid range
+            alpha = 1.0 / (1.0 + np.exp(x))  # sigmoid: 1->0
+            alpha = alpha[np.newaxis, :, np.newaxis]
+
+            left_blend = left_arr[:, blend_start:blend_end]
+            right_blend = right_arr[:, blend_start:blend_end]
+            merged[:, blend_start:blend_end] = left_blend * alpha + right_blend * (1 - alpha)
 
     # Convert back to PIL
     merged = np.clip(merged, 0, 255).astype(np.uint8)
     return Image.fromarray(merged)
-
-
-def merge_with_face_regions(
-    left_image: Image.Image,
-    right_image: Image.Image,
-    left_face_bbox: Tuple[float, float, float, float],
-    right_face_bbox: Tuple[float, float, float, float],
-    expansion_ratio: float = 1.5,
-) -> Image.Image:
-    """
-    Merge images using face bounding boxes to determine the split point.
-
-    The split point is calculated based on face positions to avoid
-    cutting through faces.
-
-    Args:
-        left_image: PIL Image with left identity
-        right_image: PIL Image with right identity
-        left_face_bbox: (x1, y1, x2, y2) of left face
-        right_face_bbox: (x1, y1, x2, y2) of right face
-        expansion_ratio: Expand face region to include body
-
-    Returns:
-        Merged PIL Image
-    """
-    width, height = left_image.size
-
-    # Calculate the gap between faces
-    left_face_right_edge = left_face_bbox[2]  # x2 of left face
-    right_face_left_edge = right_face_bbox[0]  # x1 of right face
-
-    # Expand face regions to body
-    left_region_end = min(left_face_right_edge * expansion_ratio, width * 0.6)
-    right_region_start = max(right_face_left_edge / expansion_ratio, width * 0.4)
-
-    # Calculate split point (middle of gap)
-    split_point = (left_region_end + right_region_start) / 2
-    split_ratio = split_point / width
-
-    # Calculate overlap around split point
-    overlap_width = abs(right_region_start - left_region_end) / width
-    overlap_ratio = max(0.1, min(0.4, overlap_width))
-
-    return merge_images(left_image, right_image, overlap_ratio, blend_mode="gaussian")
 
 
 def side_by_side(
@@ -177,7 +101,7 @@ def side_by_side(
     gap: int = 0,
 ) -> Image.Image:
     """
-    Simple side-by-side concatenation (no blending).
+    Simple side-by-side concatenation (no blending, doubles width).
 
     Args:
         left_image: Left PIL Image
@@ -185,7 +109,7 @@ def side_by_side(
         gap: Gap in pixels between images
 
     Returns:
-        Combined PIL Image
+        Combined PIL Image (width = left + right + gap)
     """
     # Ensure same height
     if left_image.height != right_image.height:

@@ -153,8 +153,13 @@ def generate_multi_identity(
 
     # Merge results
     if merge_mode == "blend":
-        print(f"  Merging with {overlap_ratio:.0%} overlap...")
-        merged = merge_images(left_result, right_result, overlap_ratio=overlap_ratio)
+        # Convert ratio to percent if needed (overlap_ratio was 0.0-1.0, now we use 5-20%)
+        overlap_pct = overlap_ratio * 100 if overlap_ratio <= 1.0 else overlap_ratio
+        # Clamp to 5-20% range, or use random if outside range
+        if overlap_pct < 5 or overlap_pct > 20:
+            overlap_pct = None  # Will use random 5-20%
+        print(f"  Merging with ~{overlap_pct or '5-20'}% overlap zone...")
+        merged = merge_images(left_result, right_result, overlap_percent=overlap_pct)
         return merged, left_result, right_result, seed
 
     elif merge_mode == "side_by_side":
