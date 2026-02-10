@@ -46,6 +46,7 @@ def generate_multi_identity(
     guidance_scale: float = 5.0,
     overlap_ratio: float = 0.3,
     merge_mode: str = "blend",  # "blend", "side_by_side", or "separate"
+    output_width: Optional[int] = None,  # Final output width (defaults to input image width)
 ) -> Tuple[Image.Image, Optional[Image.Image], Optional[Image.Image], int]:
     """
     Generate multi-identity image from a SINGLE prompt.
@@ -88,9 +89,17 @@ def generate_multi_identity(
     """
     # Load input image
     input_image = load_image(input_image_path)
+    input_width, input_height = input_image.size
+
+    # Set final output width (default to input image width)
+    final_width = output_width if output_width else input_width
 
     # Parse single prompt into left/right
     left_prompt, right_prompt = split_prompt(prompt, pipe.trigger_word)
+
+    # Add "solo" to ensure single person per generation
+    left_prompt = f"{left_prompt}, solo, single person, simple background"
+    right_prompt = f"{right_prompt}, solo, single person, simple background"
 
     print(f"  Parsed prompts:")
     print(f"    Left:  {left_prompt}")
@@ -101,6 +110,7 @@ def generate_multi_identity(
         face_detector, input_image
     )
     print(f"  Extracted face crops: left={left_face_img.size}, right={right_face_img.size}")
+    print(f"  Input image: {input_width}x{input_height}, Final output width: {final_width}")
 
     # Seed
     seed = seed if seed is not None else random.randint(0, MAX_SEED)
@@ -109,9 +119,13 @@ def generate_multi_identity(
     start_merge_step = int(float(style_strength_ratio) / 100 * num_steps)
     start_merge_step = min(start_merge_step, 30)
 
+    # Enhanced negative prompt to avoid extra people
+    extra_negative = "multiple people, crowd, group, two people, couple, duo, pair, extra person, extra face, extra limbs"
+    negative_prompt_enhanced = f"{negative_prompt}, {extra_negative}" if negative_prompt else extra_negative
+
     # Apply style
-    prompt_left_styled, neg_left = apply_style(style_name, left_prompt, negative_prompt)
-    prompt_right_styled, neg_right = apply_style(style_name, right_prompt, negative_prompt)
+    prompt_left_styled, neg_left = apply_style(style_name, left_prompt, negative_prompt_enhanced)
+    prompt_right_styled, neg_right = apply_style(style_name, right_prompt, negative_prompt_enhanced)
 
     # Validate trigger words
     validate_trigger_word(pipe, prompt_left_styled)
@@ -153,13 +167,28 @@ def generate_multi_identity(
 
     # Merge results
     if merge_mode == "blend":
-        print(f"  Merging: left half of left img + right half of right img")
+        print(f"  Merging: full left img + full right img")
         merged = merge_images(left_result, right_result)
+
+        # Resize to final width (maintaining aspect ratio)
+        merged_w, merged_h = merged.size
+        scale = final_width / merged_w
+        final_height = int(merged_h * scale)
+        merged = merged.resize((final_width, final_height), Image.LANCZOS)
+        print(f"  Resized to: {merged.size}")
+
         return merged, left_result, right_result, seed
 
     elif merge_mode == "side_by_side":
         print(f"  Creating side-by-side view...")
         merged = side_by_side(left_result, right_result, gap=10)
+
+        # Resize to final width
+        merged_w, merged_h = merged.size
+        scale = final_width / merged_w
+        final_height = int(merged_h * scale)
+        merged = merged.resize((final_width, final_height), Image.LANCZOS)
+
         return merged, left_result, right_result, seed
 
     else:  # separate
