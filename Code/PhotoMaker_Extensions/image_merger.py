@@ -8,36 +8,38 @@ from PIL import Image
 def merge_images(
     left_image: Image.Image,
     right_image: Image.Image,
-    **kwargs  # Ignore any extra params for compatibility
+    **kwargs
 ) -> Image.Image:
     """
-    Simple horizontal merge: left half from left_image + right half from right_image.
-    No blending, just a clean cut at the center.
+    Horizontally concatenate two images: full left image + full right image.
+    Final width = left_width + right_width
 
     Args:
         left_image: PIL Image with left identity
         right_image: PIL Image with right identity
 
     Returns:
-        Merged PIL Image
+        Combined PIL Image (width = left + right)
     """
-    # Ensure same size
-    if left_image.size != right_image.size:
-        right_image = right_image.resize(left_image.size, Image.LANCZOS)
+    # Ensure same height
+    if left_image.height != right_image.height:
+        target_height = max(left_image.height, right_image.height)
+        left_image = left_image.resize(
+            (int(left_image.width * target_height / left_image.height), target_height),
+            Image.LANCZOS
+        )
+        right_image = right_image.resize(
+            (int(right_image.width * target_height / right_image.height), target_height),
+            Image.LANCZOS
+        )
 
-    width, height = left_image.size
-    center = width // 2
+    # Concatenate: left + right
+    total_width = left_image.width + right_image.width
+    merged = Image.new('RGB', (total_width, left_image.height))
+    merged.paste(left_image, (0, 0))
+    merged.paste(right_image, (left_image.width, 0))
 
-    # Convert to numpy
-    left_arr = np.array(left_image)
-    right_arr = np.array(right_image)
-
-    # Simple merge: left half + right half
-    merged = np.zeros_like(left_arr)
-    merged[:, :center] = left_arr[:, :center]  # Left half from left image
-    merged[:, center:] = right_arr[:, center:]  # Right half from right image
-
-    return Image.fromarray(merged)
+    return merged
 
 
 def side_by_side(
@@ -46,7 +48,7 @@ def side_by_side(
     gap: int = 0,
 ) -> Image.Image:
     """
-    Side-by-side concatenation (doubles width).
+    Same as merge_images but with optional gap between images.
     """
     if left_image.height != right_image.height:
         target_height = max(left_image.height, right_image.height)
